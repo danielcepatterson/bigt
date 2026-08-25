@@ -82,7 +82,8 @@ export default function App() {
 
 	const bottomRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const recognitionRef = useRef<SpeechRecognition | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const recognitionRef = useRef<any>(null);
 
 	// ── Init ───────────────────────────────────────────────────────────────────
 
@@ -201,14 +202,15 @@ export default function App() {
 	// ── Voice I/O ──────────────────────────────────────────────────────────────
 
 	function startListening() {
-		const SpeechRecognition =
-			window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition: typeof SpeechRecognition }).webkitSpeechRecognition;
-		if (!SpeechRecognition) {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const SR: any =
+			(window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+		if (!SR) {
 			alert("Speech recognition not supported in this browser. Try Chrome or Edge.");
 			return;
 		}
 
-		const rec = new SpeechRecognition();
+		const rec = new SR();
 		rec.continuous = true;
 		rec.interimResults = true;
 		rec.lang = "en-US";
@@ -217,7 +219,7 @@ export default function App() {
 		let finalText = "";
 		let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
-		rec.onresult = (e) => {
+		rec.onresult = (e: any) => {
 			let interim = "";
 			finalText = "";
 			for (let i = 0; i < e.results.length; i++) {
@@ -245,7 +247,7 @@ export default function App() {
 			}
 		};
 
-		rec.onerror = (e) => {
+		rec.onerror = (e: any) => {
 			if (e.error !== "aborted") console.warn("Speech error:", e.error);
 			if (silenceTimer) clearTimeout(silenceTimer);
 			setInterimTranscript("");
