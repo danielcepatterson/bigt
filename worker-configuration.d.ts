@@ -6,6 +6,10 @@ declare namespace Cloudflare {
 		mainModule: typeof import("./src/worker/index");
 	}
 	interface Env {
+		MEMORY: KVNamespace;
+		AI: Ai;
+		BRAVE_API_KEY?: string;
+		OPENAI_API_KEY?: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

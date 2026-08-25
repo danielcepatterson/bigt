@@ -11,5 +11,15 @@
 	"assets": {
 		"directory": "./dist/client",
 		"not_found_handling": "single-page-application"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "MEMORY",
+			"id": "00000000000000000000000000000001",
+			"preview_id": "00000000000000000000000000000001"
+		}
+	],
+	"ai": {
+		"binding": "AI"
 	}
 }

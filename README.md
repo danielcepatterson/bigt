@@ -1,90 +1,97 @@
-# React + Vite + Hono + Cloudflare Workers
+# J.A.R.V.I.S
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/vite-react-template)
+> Just A Rather Very Intelligent System
 
-This template provides a minimal setup for building a React application with TypeScript and Vite, designed to run on Cloudflare Workers. It features hot module replacement, ESLint integration, and the flexibility of Workers deployments.
+A persistent, learning AI assistant built on **Cloudflare Workers + Workers AI + KV + React + Hono + Vite**. Not a toy — a real tool that remembers, learns, manages tasks, searches the web, and grows more useful with every conversation.
 
-![React + TypeScript + Vite + Cloudflare Workers](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/fc7b4b62-442b-4769-641b-ad4422d74300/public)
+---
 
-<!-- dash-content-start -->
+## Features
 
-🚀 Supercharge your web development with this powerful stack:
+| Capability | How it works |
+|---|---|
+| **Persistent memory** | JARVIS saves facts about you across sessions via Cloudflare KV |
+| **User profile** | Key/value store JARVIS learns and updates automatically |
+| **Task management** | Full task CRUD with priorities, due dates, and completion |
+| **Conversation history** | Full history per conversation, up to 100 conversations stored |
+| **Web search** | Live Brave Search results (requires `BRAVE_API_KEY` secret) |
+| **URL fetching** | JARVIS can read any URL you provide |
+| **Agentic tool loop** | Up to 3 rounds of tool use per response |
+| **Voice I/O** | Web Speech API for mic input and TTS output |
+| **GPT-4o support** | Set `OPENAI_API_KEY` to upgrade from Workers AI |
+| **HUD interface** | Iron Man–style dark UI with cyan glows |
 
-- [**React**](https://react.dev/) - A modern UI library for building interactive interfaces
-- [**Vite**](https://vite.dev/) - Lightning-fast build tooling and development server
-- [**Hono**](https://hono.dev/) - Ultralight, modern backend framework
-- [**Cloudflare Workers**](https://developers.cloudflare.com/workers/) - Edge computing platform for global deployment
+---
 
-### ✨ Key Features
-
-- 🔥 Hot Module Replacement (HMR) for rapid development
-- 📦 TypeScript support out of the box
-- 🛠️ ESLint configuration included
-- ⚡ Zero-config deployment to Cloudflare's global network
-- 🎯 API routes with Hono's elegant routing
-- 🔄 Full-stack development setup
-- 🔎 Built-in Observability to monitor your Worker
-
-Get started in minutes with local development or deploy directly via the Cloudflare dashboard. Perfect for building modern, performant web applications at the edge.
-
-<!-- dash-content-end -->
-
-## Getting Started
-
-To start a new project with this template, run:
-
-```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/vite-react-template
-```
-
-A live deployment of this template is available at:
-[https://react-vite-template.templates.workers.dev](https://react-vite-template.templates.workers.dev)
-
-## Development
-
-Install dependencies:
+## Quick Start
 
 ```bash
 npm install
-```
-
-Start the development server with:
-
-```bash
 npm run dev
 ```
 
-Your application will be available at [http://localhost:5173](http://localhost:5173).
+---
 
-## Production
+## Setup: KV Namespace
 
-Build your project for production:
-
-```bash
-npm run build
-```
-
-Preview your build locally:
+You need a real KV namespace for production:
 
 ```bash
-npm run preview
+# Create the namespace
+npx wrangler kv namespace create MEMORY
+
+# Copy the returned ID into wrangler.json → kv_namespaces[0].id
 ```
 
-Deploy your project to Cloudflare Workers:
+---
+
+## Setup: Secrets
+
+### Brave Search (for live web search)
+Get a free API key at https://brave.com/search/api/
 
 ```bash
-npm run build && npm run deploy
+npx wrangler secret put BRAVE_API_KEY
 ```
 
-Monitor your workers:
+### OpenAI GPT-4o (optional upgrade)
+```bash
+npx wrangler secret put OPENAI_API_KEY
+```
+
+Without these, JARVIS uses Cloudflare Workers AI (llama-3.3-70b) and responds from training knowledge.
+
+---
+
+## Deploy
 
 ```bash
-npx wrangler tail
+npm run deploy
 ```
 
-## Additional Resources
+---
 
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Vite Documentation](https://vitejs.dev/guide/)
-- [React Documentation](https://reactjs.org/)
-- [Hono Documentation](https://hono.dev/)
+## How JARVIS Learns
+
+JARVIS's system prompt is dynamically built every request from:
+1. Your stored memories (last 30)
+2. Your user profile (name, timezone, occupation, etc.)
+3. Your pending tasks
+
+JARVIS silently calls `save_memory` or `update_profile` tools mid-conversation. Manage them manually via the side panels.
+
+---
+
+## API Reference
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/chat` | POST | Send a message |
+| `/api/memories` | GET/POST | List/add memories |
+| `/api/memories/:id` | DELETE | Delete a memory |
+| `/api/tasks` | GET/POST | List/create tasks |
+| `/api/tasks/:id` | PATCH/DELETE | Update/delete task |
+| `/api/conversations` | GET | List conversations |
+| `/api/conversations/:id` | GET/DELETE | Load/delete conversation |
+| `/api/profile` | GET/PATCH | Read/update user profile |
+| `/api/status` | GET | System status |
