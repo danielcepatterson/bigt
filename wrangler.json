@@ -3,7 +3,9 @@
 	"name": "bigt",
 	"main": "./src/worker/index.ts",
 	"compatibility_date": "2025-10-08",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	"observability": {
 		"enabled": true
 	},
@@ -15,8 +17,7 @@
 	"kv_namespaces": [
 		{
 			"binding": "MEMORY",
-			"id": "00000000000000000000000000000001",
-			"preview_id": "00000000000000000000000000000001"
+			"id": "aa4e13561d254e66bfc4b503866bfcc3"
 		}
 	],
 	"ai": {
