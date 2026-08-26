@@ -315,6 +315,8 @@ async function executeTool(env: Env, toolCall: Record<string, string>): Promise<
 
 		return `Search results for "${toolCall.query}":\n${searchResult}\n\n---\nPage content from ${topUrl}:\n${pageResult}`;
 	}
+
+	if (tool === "save_memory") {
 		const memories = await getMemories(env);
 		const duplicate = memories.find(
 			(m) => m.content.toLowerCase().trim() === toolCall.content.toLowerCase().trim(),
