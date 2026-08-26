@@ -94,7 +94,19 @@ async function buildSystemPrompt(env: Env): Promise<string> {
 
 	const pendingTasks = tasks.filter((t) => !t.done);
 
-	let prompt = `You are JARVIS — Just A Rather Very Intelligent System. You are a persistent, learning AI personal assistant. You are sharp, direct, and genuinely capable. You remember the people you work with and grow more useful with every interaction.
+	const model = env.OPENAI_API_KEY
+		? "GPT-4o (OpenAI)"
+		: "Llama 3.3 70B Instruct FP8 Fast (Cloudflare Workers AI — @cf/meta/llama-3.3-70b-instruct-fp8-fast)";
+
+	let prompt = `You are bigT — a persistent, learning AI personal assistant running on Cloudflare Workers.
+
+Your technical details (answer these directly when asked):
+- AI model: ${model}
+- Infrastructure: Cloudflare Workers (edge compute), Cloudflare KV (persistent memory), Hono (API framework), React frontend
+- Memory: persistent across all conversations via Cloudflare KV — you genuinely remember things
+- Tools: web_search (DuckDuckGo + Brave), fetch_url, save_memory, update_profile, create_task, complete_task, delete_task
+- Voice: Web Speech API for both input and output
+- Deployed at: Cloudflare's global edge network
 
 Current time: ${dateStr}`;
 
@@ -132,14 +144,16 @@ You have access to tools. Call them by embedding a JSON block exactly like this 
 <TOOL>{"tool":"complete_task","id":"task-id"}</TOOL>
 <TOOL>{"tool":"delete_task","id":"task-id"}</TOOL>
 
-Core principles:
-1. Be direct and precise. Never say "Certainly!" or "Of course!" — just answer.
-2. Use tools proactively when current information or memory would help.
-3. Save memories when you learn important, durable facts about the user. Don't save trivial things.
-4. Update the user profile when you learn key facts about who they are.
-5. Format with markdown for complex content; plain text for casual replies.
-6. Think carefully before answering; show reasoning only when it genuinely adds value.
-7. Reference past context and memories naturally — you remember, use it.`;
+Core rules — follow these exactly:
+1. ANSWER THE QUESTION FIRST. Always. Never deflect, hedge, or redirect before giving the actual answer.
+2. Never say "Certainly", "Of course", "Great question", "I'd be happy to" or any filler. Start with the answer.
+3. If you don't know something current, use web_search immediately — don't say you can't help.
+4. Save memories only for durable, important facts about the user (not about your own responses).
+5. When asked about yourself — your model, how you work, your capabilities — answer from your technical details above, directly and accurately.
+6. Use markdown only for genuinely complex content (code, tables, lists). Plain prose for everything else.
+7. Be concise. One clear answer beats three vague paragraphs.
+8. Reference past memories naturally when relevant — you remember, use it.
+9. When searching for local/specific information, search precisely (e.g. "Okami restaurant Wilmington NC") and report exactly what you find.`;
 
 	return prompt;
 }
@@ -150,26 +164,64 @@ async function executeTool(env: Env, toolCall: Record<string, string>): Promise<
 	const { tool } = toolCall;
 
 	if (tool === "web_search") {
-		const apiKey = env.BRAVE_API_KEY;
-		if (!apiKey) {
-			return "Web search unavailable — BRAVE_API_KEY secret not set. Responding from training knowledge.";
+		const query = toolCall.query;
+		const braveKey = env.BRAVE_API_KEY;
+
+		// Try Brave first if key is available
+		if (braveKey) {
+			try {
+				const res = await fetch(
+					`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8&search_lang=en`,
+					{ headers: { Accept: "application/json", "X-Subscription-Token": braveKey } },
+				);
+				if (res.ok) {
+					const data = (await res.json()) as {
+						web?: { results?: Array<{ title: string; description: string; url: string }> };
+					};
+					const results =
+						data.web?.results
+							?.slice(0, 8)
+							.map((r) => `**${r.title}**\n${r.description}\n${r.url}`)
+							.join("\n\n") || "No results.";
+					return `Brave search results for "${query}":\n\n${results}`;
+				}
+			} catch {}
 		}
+
+		// Fallback: DuckDuckGo HTML (no API key needed)
 		try {
-			const res = await fetch(
-				`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(toolCall.query)}&count=6&search_lang=en`,
-				{ headers: { Accept: "application/json", "X-Subscription-Token": apiKey } },
-			);
-			const data = (await res.json()) as {
-				web?: { results?: Array<{ title: string; description: string; url: string }> };
-			};
-			const results =
-				data.web?.results
-					?.slice(0, 6)
-					.map((r) => `**${r.title}**\n${r.description}\n${r.url}`)
-					.join("\n\n") || "No results found.";
-			return `Search results for "${toolCall.query}":\n\n${results}`;
+			const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+			const res = await fetch(ddgUrl, {
+				headers: {
+					"User-Agent": "Mozilla/5.0 (compatible; bigT/1.0)",
+					Accept: "text/html",
+				},
+				signal: AbortSignal.timeout(8000),
+			});
+			const html = await res.text();
+
+			// Extract result snippets from DDG HTML
+			const snippets: string[] = [];
+			const resultBlocks = html.match(/<div class="result__body"[\s\S]*?<\/div>\s*<\/div>/g) || [];
+			for (const block of resultBlocks.slice(0, 8)) {
+				const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+				const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+				const urlMatch = block.match(/class="result__url"[^>]*>\s*([\s\S]*?)\s*</);
+				const title = titleMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
+				const snippet = snippetMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
+				const url = urlMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
+				if (title && snippet) snippets.push(`**${title}**\n${snippet}${url ? `\n${url}` : ""}`);
+			}
+
+			if (snippets.length > 0) {
+				return `DuckDuckGo search results for "${query}":\n\n${snippets.join("\n\n")}`;
+			}
+
+			// Last resort: return a slice of the raw text
+			const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 3000);
+			return `Search page content for "${query}":\n\n${text}`;
 		} catch (e) {
-			return `Search failed: ${String(e)}`;
+			return `Web search failed: ${String(e)}`;
 		}
 	}
 
@@ -183,10 +235,15 @@ async function executeTool(env: Env, toolCall: Record<string, string>): Promise<
 			const clean = html
 				.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
 				.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+				.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+				.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
+				.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
 				.replace(/<[^>]+>/g, " ")
-				.replace(/\s+/g, " ")
+				.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+				.replace(/&nbsp;/g, " ").replace(/&#\d+;/g, " ")
+				.replace(/\s{3,}/g, "\n")
 				.trim()
-				.slice(0, 4000);
+				.slice(0, 5000);
 			return `Content from ${toolCall.url}:\n\n${clean}`;
 		} catch (e) {
 			return `Failed to fetch URL: ${String(e)}`;
