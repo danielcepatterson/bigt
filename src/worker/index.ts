@@ -188,49 +188,88 @@ async function executeTool(env: Env, toolCall: Record<string, string>): Promise<
 			} catch {}
 		}
 
-		// Fallback: DuckDuckGo HTML (no API key needed)
+		// Fallback 1: DuckDuckGo JSON API (official, no key, no bot issues)
 		try {
-			const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-			const res = await fetch(ddgUrl, {
-				headers: {
-					"User-Agent": "Mozilla/5.0 (compatible; bigT/1.0)",
-					Accept: "text/html",
+			const ddgRes = await fetch(
+				`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
+				{
+					headers: { Accept: "application/json" },
+					signal: AbortSignal.timeout(8000),
 				},
-				signal: AbortSignal.timeout(8000),
-			});
-			const html = await res.text();
+			);
+			if (ddgRes.ok) {
+				type DDGResult = { Text: string; FirstURL: string };
+				type DDGResponse = {
+					Abstract?: string;
+					AbstractSource?: string;
+					AbstractURL?: string;
+					Answer?: string;
+					RelatedTopics?: Array<DDGResult | { Topics?: DDGResult[] }>;
+				};
+				const data = (await ddgRes.json()) as DDGResponse;
+				const parts: string[] = [];
 
-			// Extract result snippets from DDG HTML
-			const snippets: string[] = [];
-			const resultBlocks = html.match(/<div class="result__body"[\s\S]*?<\/div>\s*<\/div>/g) || [];
-			for (const block of resultBlocks.slice(0, 8)) {
-				const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
-				const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
-				const urlMatch = block.match(/class="result__url"[^>]*>\s*([\s\S]*?)\s*</);
-				const title = titleMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
-				const snippet = snippetMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
-				const url = urlMatch?.[1]?.replace(/<[^>]+>/g, "").trim();
-				if (title && snippet) snippets.push(`**${title}**\n${snippet}${url ? `\n${url}` : ""}`);
+				if (data.Answer) parts.push(`**Direct answer:** ${data.Answer}`);
+				if (data.Abstract) parts.push(`**${data.AbstractSource}:** ${data.Abstract}\n${data.AbstractURL}`);
+
+				const topics: DDGResult[] = [];
+				for (const t of data.RelatedTopics ?? []) {
+					if ("Topics" in t && t.Topics) topics.push(...t.Topics);
+					else if ("Text" in t) topics.push(t as DDGResult);
+				}
+				for (const t of topics.slice(0, 6)) {
+					if (t.Text) parts.push(`- ${t.Text}${t.FirstURL ? `\n  ${t.FirstURL}` : ""}`);
+				}
+
+				if (parts.length > 0) {
+					return `DuckDuckGo results for "${query}":\n\n${parts.join("\n\n")}`;
+				}
 			}
+		} catch {}
 
-			if (snippets.length > 0) {
-				return `DuckDuckGo search results for "${query}":\n\n${snippets.join("\n\n")}`;
-			}
-
-			// Last resort: return a slice of the raw text
-			const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 3000);
-			return `Search page content for "${query}":\n\n${text}`;
-		} catch (e) {
-			return `Web search failed: ${String(e)}`;
+		// Fallback 2: SearXNG public instances (try each until one works)
+		const searxInstances = [
+			"https://searx.be",
+			"https://search.mdosch.de",
+			"https://searxng.site",
+			"https://priv.au",
+		];
+		for (const instance of searxInstances) {
+			try {
+				const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&language=en`;
+				const res = await fetch(url, {
+					headers: {
+						"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+						Accept: "application/json",
+					},
+					signal: AbortSignal.timeout(7000),
+				});
+				if (!res.ok) continue;
+				type SearXResult = { title: string; content: string; url: string };
+				const data = (await res.json()) as { results?: SearXResult[] };
+				if (!data.results?.length) continue;
+				const results = data.results
+					.slice(0, 8)
+					.map((r) => `**${r.title}**\n${r.content}\n${r.url}`)
+					.join("\n\n");
+				return `Search results for "${query}" (via ${instance}):\n\n${results}`;
+			} catch {}
 		}
+
+		return `All search engines failed for "${query}". If this keeps happening, add a BRAVE_API_KEY secret for reliable search.`;
 	}
 
 	if (tool === "fetch_url") {
 		try {
 			const res = await fetch(toolCall.url, {
-				headers: { "User-Agent": "JARVIS/2.0 (+https://jarvis.ai/)" },
-				signal: AbortSignal.timeout(10000),
+				headers: {
+					"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+					"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-US,en;q=0.5",
+				},
+				signal: AbortSignal.timeout(12000),
 			});
+			if (!res.ok) return `Failed to fetch ${toolCall.url}: HTTP ${res.status}`;
 			const html = await res.text();
 			const clean = html
 				.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
