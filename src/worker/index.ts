@@ -137,6 +137,7 @@ Current time: ${dateStr}`;
 
 You have access to tools. Call them by embedding a JSON block exactly like this in your response — one per line:
 <TOOL>{"tool":"web_search","query":"your query"}</TOOL>
+<TOOL>{"tool":"search_and_fetch","query":"your query"}</TOOL>
 <TOOL>{"tool":"fetch_url","url":"https://example.com"}</TOOL>
 <TOOL>{"tool":"save_memory","content":"fact to remember","category":"personal|preference|goal|technical|context|general"}</TOOL>
 <TOOL>{"tool":"update_profile","key":"name|timezone|occupation|etc","value":"value"}</TOOL>
@@ -144,16 +145,20 @@ You have access to tools. Call them by embedding a JSON block exactly like this 
 <TOOL>{"tool":"complete_task","id":"task-id"}</TOOL>
 <TOOL>{"tool":"delete_task","id":"task-id"}</TOOL>
 
+Tool guidance:
+- Use search_and_fetch for specific factual questions (hours, prices, addresses, menus, events, people, places). It searches AND reads the top result page automatically — always prefer this over plain web_search for specific lookups.
+- Use web_search only for broad queries where snippets are enough.
+- Use fetch_url when you already have a URL you want to read.
+
 Core rules — follow these exactly:
 1. ANSWER THE QUESTION FIRST. Always. Never deflect, hedge, or redirect before giving the actual answer.
 2. Never say "Certainly", "Of course", "Great question", "I'd be happy to" or any filler. Start with the answer.
-3. If you don't know something current, use web_search immediately — don't say you can't help.
-4. Save memories only for durable, important facts about the user (not about your own responses).
-5. When asked about yourself — your model, how you work, your capabilities — answer from your technical details above, directly and accurately.
-6. Use markdown only for genuinely complex content (code, tables, lists). Plain prose for everything else.
-7. Be concise. One clear answer beats three vague paragraphs.
-8. Reference past memories naturally when relevant — you remember, use it.
-9. When searching for local/specific information, search precisely (e.g. "Okami restaurant Wilmington NC") and report exactly what you find.`;
+3. If you don't know something current, use search_and_fetch immediately — never tell the user to check somewhere themselves.
+4. NEVER say "I was unable to find" or "you might want to check" — if the first search fails, try a different query or fetch a different URL. Try at least twice before giving up.
+5. Save memories only for durable, important facts about the user.
+6. When asked about yourself — answer from your technical details above, directly.
+7. Use markdown only for genuinely complex content. Plain prose for casual replies.
+8. Be concise. Report what you found, not the process of finding it.`;
 
 	return prompt;
 }
@@ -289,7 +294,27 @@ async function executeTool(env: Env, toolCall: Record<string, string>): Promise<
 		}
 	}
 
-	if (tool === "save_memory") {
+	if (tool === "search_and_fetch") {
+		// Step 1: run a web search and collect URLs
+		const searchResult = await executeTool(env, { tool: "web_search", query: toolCall.query });
+
+		// Extract all URLs from the search result text
+		const urlMatches = searchResult.match(/https?:\/\/[^\s)"'<>]+/g) ?? [];
+		// Filter out search engine URLs themselves, prefer .com/.org/.net/local business domains
+		const candidates = urlMatches.filter(
+			(u) => !u.includes("duckduckgo") && !u.includes("searx") && !u.includes("brave.com/search"),
+		);
+
+		if (candidates.length === 0) {
+			return searchResult; // return search text as-is if no URLs to follow
+		}
+
+		// Step 2: fetch the top candidate URL
+		const topUrl = candidates[0];
+		const pageResult = await executeTool(env, { tool: "fetch_url", url: topUrl });
+
+		return `Search results for "${toolCall.query}":\n${searchResult}\n\n---\nPage content from ${topUrl}:\n${pageResult}`;
+	}
 		const memories = await getMemories(env);
 		const duplicate = memories.find(
 			(m) => m.content.toLowerCase().trim() === toolCall.content.toLowerCase().trim(),
@@ -406,8 +431,8 @@ app.post("/api/chat", async (c) => {
 		let responseText = await callAI(c.env, allMessages);
 		const toolsUsed: string[] = [];
 
-		// Agentic tool loop — up to 3 rounds
-		for (let round = 0; round < 3; round++) {
+		// Agentic tool loop — up to 5 rounds
+		for (let round = 0; round < 5; round++) {
 			const toolMatches = [...responseText.matchAll(/<TOOL>(\{.*?\})<\/TOOL>/gs)];
 			if (toolMatches.length === 0) break;
 
